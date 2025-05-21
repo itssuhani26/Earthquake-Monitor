@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Earthquake Monitoring Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #3498db;
+            --danger: #e74c3c;
+            --success: #2ecc71;
+            --light: #ecf0f1;
+            --dark: #34495e;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background-color: #f5f7fa;
+            color: var(--dark);
+        }
+        
+        .container {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        /* Login Page */
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        }
+        
+        .login-box {
+            background: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        .login-box h1 {
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+        }
+        
+        .login-box input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+        
+        .login-box button {
+            background-color: var(--secondary);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+            transition: background 0.3s;
+        }
+        
+        .login-box button:hover {
+            background-color: #2980b9;
+        }
+        
+        /* Dashboard */
+        .dashboard {
+            display: none;
+            flex-direction: column;
+            width: 100%;
+        }
+        
+        .navbar {
+            background-color: var(--primary);
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        .navbar h1 {
+            font-size: 1.5rem;
+        }
+        
+        .logout-btn {
+            background-color: var(--danger);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        
+        .main-content {
+            display: flex;
+            flex-wrap: wrap;
+            padding: 20px;
+            gap: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .card-header h2 {
+            color: var(--primary);
+            font-size: 1.2rem;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+        }
+        
+        .indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .online {
+            background-color: var(--success);
+        }
+        
+        .offline {
+            background-color: var(--danger);
+        }
+        
+        .vibration-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: var(--secondary);
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .alert {
+            background-color: #fff3cd;
+            color: #856404;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .alert.danger {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            width: 100%;
+        }
+        
+        .history-card {
+            flex: 2;
+            min-width: 600px;
+        }
+        
+        .event-log {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        
+        .log-entry {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .log-time {
+            color: #7f8c8d;
+        }
+        
+        .log-message {
+            font-weight: 500;
+        }
+        
+        .log-warning {
+            color: #e67e22;
+        }
+        
+        .log-danger {
+            color: var(--danger);
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Page -->
+    <div class="container" id="loginPage">
+        <div class="login-container">
+            <div class="login-box">
+                <h1>Earthquake Monitor</h1>
+                <input type="text" id="username" placeholder="Username" required>
+                <input type="password" id="password" placeholder="Password" required>
+                <button id="loginBtn">Login</button>
+                <p id="loginError" style="color: red; margin-top: 10px; display: none;">Invalid credentials</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Dashboard -->
+    <div class="container dashboard" id="dashboard">
+        <div class="navbar">
+            <h1>🌍 Earthquake Monitoring Dashboard</h1>
+            <button class="logout-btn" id="logoutBtn">Logout</button>
+        </div>
+        
+        <div class="main-content">
+            <div class="card">
+                <div class="card-header">
+                    <h2>Real-time Vibration</h2>
+                    <div class="status-indicator">
+                        <div class="indicator offline" id="connectionStatus"></div>
+                        <span id="statusText">Disconnected</span>
+                    </div>
+                </div>
+                <div class="vibration-value" id="vibrationValue">0.00</div>
+                <div class="alert" id="vibrationAlert">
+                    No significant vibration detected
+                </div>
+            </div>
+            
+            <div class="card history-card">
+                <div class="card-header">
+                    <h2>Vibration History</h2>
+                </div>
+                <div class="chart-container">
+                    <canvas id="vibrationChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h2>Event Log</h2>
+                </div>
+                <div class="event-log" id="eventLog">
+                    <!-- Events will be added here dynamically -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // MQTT Configuration
+        const mqttConfig = {
+            host: "703292e0b051490ca17fb7e922f6233c.s1.eu.hivemq.cloud",
+            port: 8884,
+            clientId: "webclient_" + Math.random().toString(16).substr(2, 8),
+            username: "admin",
+            password: "Pass@123",
+            topic: "esp32/vibration"
+        };
+        
+        // Chart Configuration
+        let vibrationChart;
+        const maxDataPoints = 30; // Number of points to show on graph
+        const chartData = {
+            labels: Array(maxDataPoints).fill(""),
+            datasets: [{
+                label: 'Vibration Level',
+                data: Array(maxDataPoints).fill(0),
+                borderColor: '#3498db',
+                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.1,
+                pointRadius: 2,
+                pointBackgroundColor: '#3498db'
+            }]
+        };
+        
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 0 // Disable animation for better performance
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 5, // Set maximum Y-axis value
+                    title: {
+                        display: true,
+                        text: 'Vibration (m/s²)',
+                        font: {
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(0, 0, 0, 0.05)'
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        maxRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: 10
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Vibration: ${context.parsed.y.toFixed(4)} m/s²`;
+                        }
+                    }
+                }
+            }
+        };
+        
+        // DOM Elements
+        const loginPage = document.getElementById('loginPage');
+        const dashboard = document.getElementById('dashboard');
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const usernameInput = document.getElementById('username');
+        const passwordInput = document.getElementById('password');
+        const loginError = document.getElementById('loginError');
+        const vibrationValue = document.getElementById('vibrationValue');
+        const vibrationAlert = document.getElementById('vibrationAlert');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const statusText = document.getElementById('statusText');
+        const eventLog = document.getElementById('eventLog');
+        
+        // MQTT Client
+        let mqttClient;
+        let dataCounter = 0;
+        
+        // Initialize Chart
+        function initChart() {
+            const ctx = document.getElementById('vibrationChart').getContext('2d');
+            vibrationChart = new Chart(ctx, {
+                type: 'line',
+                data: chartData,
+                options: chartOptions
+            });
+        }
+        
+        // Update Chart with new data point
+        function updateChart(value) {
+            // Shift all data points left
+            chartData.datasets[0].data.shift();
+            // Add new data point at the end
+            chartData.datasets[0].data.push(value);
+            
+            // Update labels (show time for last point only)
+            const now = new Date();
+            const timeString = now.toLocaleTimeString();
+            
+            // Shift all labels left
+            chartData.labels.shift();
+            // Add empty string for all points except the last one
+            if (dataCounter % 5 === 0) { // Update time label every 5 data points
+                chartData.labels.push(timeString);
+            } else {
+                chartData.labels.push("");
+            }
+            
+            dataCounter++;
+            
+            vibrationChart.update();
+        }
+        
+        // Add Event to Log
+        function addEventToLog(message, isWarning = false, isDanger = false) {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString();
+            
+            const logEntry = document.createElement('div');
+            logEntry.className = 'log-entry';
+            
+            const timeSpan = document.createElement('span');
+            timeSpan.className = 'log-time';
+            timeSpan.textContent = timeString;
+            
+            const messageSpan = document.createElement('span');
+            messageSpan.className = 'log-message';
+            
+            if (isWarning) messageSpan.classList.add('log-warning');
+            if (isDanger) messageSpan.classList.add('log-danger');
+            
+            messageSpan.textContent = message;
+            
+            logEntry.appendChild(timeSpan);
+            logEntry.appendChild(messageSpan);
+            
+            eventLog.insertBefore(logEntry, eventLog.firstChild);
+            
+            // Keep only the last 50 entries
+            if (eventLog.children.length > 50) {
+                eventLog.removeChild(eventLog.lastChild);
+            }
+        }
+        
+        // Handle Vibration Data
+        function handleVibrationData(value) {
+            const floatValue = parseFloat(value);
+            
+            // Update display
+            vibrationValue.textContent = floatValue.toFixed(4);
+            updateChart(floatValue);
+            
+            // Check vibration level
+            if (floatValue > 1.5) {
+                vibrationAlert.textContent = "⚠️ Strong earthquake detected!";
+                vibrationAlert.className = "alert danger";
+                vibrationAlert.style.display = "block";
+                addEventToLog(`Strong vibration detected: ${floatValue.toFixed(4)} m/s²`, false, true);
+            } 
+            else if (floatValue > 0.5) {
+                vibrationAlert.textContent = "⚠️ Moderate vibration detected";
+                vibrationAlert.className = "alert";
+                vibrationAlert.style.display = "block";
+                addEventToLog(`Moderate vibration detected: ${floatValue.toFixed(4)} m/s²`, true, false);
+            }
+            else if (floatValue > 0.2) {
+                vibrationAlert.textContent = "Minor vibration detected";
+                vibrationAlert.className = "alert";
+                vibrationAlert.style.display = "block";
+                addEventToLog(`Minor vibration detected: ${floatValue.toFixed(4)} m/s²`, false, false);
+            }
+            else {
+                vibrationAlert.textContent = "No significant vibration detected";
+                vibrationAlert.className = "alert";
+                vibrationAlert.style.display = "block";
+            }
+        }
+        
+        // Connect to MQTT Broker
+        function connectToMqtt() {
+            mqttClient = new Paho.MQTT.Client(
+                mqttConfig.host,
+                mqttConfig.port,
+                mqttConfig.clientId
+            );
+            
+            mqttClient.onConnectionLost = onConnectionLost;
+            mqttClient.onMessageArrived = onMessageArrived;
+            
+            const options = {
+                useSSL: true,
+                userName: mqttConfig.username,
+                password: mqttConfig.password,
+                onSuccess: onConnect,
+                onFailure: onFailure
+            };
+            
+            mqttClient.connect(options);
+        }
+        
+        function onConnect() {
+            console.log("Connected to MQTT broker");
+            connectionStatus.className = "indicator online";
+            statusText.textContent = "Connected";
+            mqttClient.subscribe(mqttConfig.topic);
+            addEventToLog("Connected to MQTT broker");
+        }
+        
+        function onFailure(message) {
+            console.log("Connection failed: " + message.errorMessage);
+            connectionStatus.className = "indicator offline";
+            statusText.textContent = "Connection failed";
+            addEventToLog("Failed to connect to MQTT broker", true);
+            
+            // Try to reconnect after 5 seconds
+            setTimeout(connectToMqtt, 5000);
+        }
+        
+        function onConnectionLost(responseObject) {
+            if (responseObject.errorCode !== 0) {
+                console.log("Connection lost: " + responseObject.errorMessage);
+                connectionStatus.className = "indicator offline";
+                statusText.textContent = "Disconnected";
+                addEventToLog("Connection to MQTT broker lost", true);
+            }
+        }
+        
+        function onMessageArrived(message) {
+            console.log("Message received: " + message.payloadString);
+            handleVibrationData(message.payloadString);
+        }
+        
+        // Login Functionality
+        function handleLogin() {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            
+            // Simple authentication (in real app, use proper authentication)
+            if (username === "admin" && password === "admin123") {
+                loginError.style.display = "none";
+                loginPage.style.display = "none";
+                dashboard.style.display = "flex";
+                
+                // Initialize dashboard components
+                initChart();
+                connectToMqtt();
+                
+                // Add welcome message
+                addEventToLog("User logged in successfully");
+                addEventToLog("System initialized");
+            } else {
+                loginError.style.display = "block";
+            }
+        }
+        
+        // Logout Functionality
+        function handleLogout() {
+            if (mqttClient && mqttClient.isConnected()) {
+                mqttClient.disconnect();
+            }
+            
+            dashboard.style.display = "none";
+            loginPage.style.display = "flex";
+            
+            // Clear inputs
+            usernameInput.value = "";
+            passwordInput.value = "";
+        }
+        
+        // Event Listeners
+        loginBtn.addEventListener('click', handleLogin);
+        logoutBtn.addEventListener('click', handleLogout);
+        
+        // Allow login on Enter key
+        passwordInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                handleLogin();
+            }
+        });
+        
+        // Initialize with login page visible
+        loginPage.style.display = "flex";
+        dashboard.style.display = "none";
+    </script>
+</body>
+</html>
